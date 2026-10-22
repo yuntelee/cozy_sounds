@@ -10,6 +10,9 @@ import beachAudio from "../assets/beach.mp3";
 import leftShackAudio from "../assets/brown_noise.mp3";
 import houseAudio from "../assets/house.mp3";
 import cityAudio from "../assets/city.mp3";
+import connectIcon from "../assets/connect.png";
+import muteIcon from "../assets/mute.png";
+import onIcon from "../assets/on.png";
 
 const audioAssets = {
   "forest": forestAudio,
@@ -93,7 +96,6 @@ const distanceToPolygon = (point, polygon) => {
 export default function TopDownGame() {
   const canvasRef = useRef(null);
 
-  const [appMode, setAppMode] = useState("play"); 
   const [debugMode, setDebugMode] = useState(true);
   const [inForeground, setInForeground] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
@@ -106,10 +108,9 @@ export default function TopDownGame() {
   
   // Audio Controls Refs (Using refs because they update in the 60fps loop)
   const isMutedRef = useRef(false);
+  const userMutedRef = useRef(false);
 
   const [audioZones, setAudioZones] = useState(INITIAL_AUDIO_ZONES);
-  const [currentZonePoints, setCurrentZonePoints] = useState([]);
-  const [zoneConfig, setZoneConfig] = useState({ name: "new_zone", fadeDistance: 150 });
 
   const audioPlayersRef = useRef({});
   const zones = useRef(mapData.filter((item) => (item.type === "boundary" || item.type === "foreground") && Array.isArray(item.points) && item.points.length >= 2));
@@ -150,6 +151,7 @@ export default function TopDownGame() {
           if (!trimmed) continue;
           try {
             const data = JSON.parse(trimmed);
+            console.log("Serial data:", data);
             const nextHardwareInput = { ...hardwareInput.current, ...data };
             hardwareInput.current = nextHardwareInput;
             setHardwareDisplay(nextHardwareInput);
@@ -203,7 +205,7 @@ export default function TopDownGame() {
     const gameLoop = () => {
       const p = player.current;
 
-      if (appMode === "play") {
+      {
         let dx = 0, dy = 0;
 
         if (keys.current.w || keys.current.ArrowUp) dy -= 1;
@@ -216,7 +218,7 @@ export default function TopDownGame() {
 
         // --- BUTTON MUTE ---
         // The button mutes only while it is physically held down.
-        const shouldMute = hw.button === 0;
+        const shouldMute = userMutedRef.current || hw.button === 0;
         if (shouldMute !== isMutedRef.current) {
           isMutedRef.current = shouldMute;
           setIsMutedHUD(shouldMute);
@@ -320,32 +322,6 @@ export default function TopDownGame() {
         ctx.fillStyle = "#e0d9b4"; ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      if (debugMode || appMode === "edit_audio") {
-        audioZones.forEach(zone => {
-          if (!zone.points || zone.points.length === 0) return;
-          ctx.fillStyle = "rgba(168, 85, 247, 0.3)"; ctx.strokeStyle = "#a855f7"; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.moveTo(zone.points[0].x, zone.points[0].y); zone.points.slice(1).forEach(pt => ctx.lineTo(pt.x, pt.y));
-          ctx.closePath(); ctx.fill(); ctx.stroke();
-
-          if (zone.fadeDistance > 0) {
-            ctx.strokeStyle = "rgba(168, 85, 247, 0.15)"; ctx.lineWidth = zone.fadeDistance * 2; ctx.lineJoin = "round"; ctx.stroke();
-          }
-
-          const cx = zone.points.reduce((sum, pt) => sum + pt.x, 0) / zone.points.length;
-          const cy = zone.points.reduce((sum, pt) => sum + pt.y, 0) / zone.points.length;
-          ctx.fillStyle = "rgba(255, 255, 255, 0.8)"; const text = `${zone.name} (${zone.fadeDistance}px)`;
-          ctx.font = "bold 12px sans-serif"; const textWidth = ctx.measureText(text).width;
-          ctx.fillRect(cx - textWidth/2 - 6, cy - 10, textWidth + 12, 20);
-          ctx.fillStyle = "#4c1d95"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, cx, cy);
-        });
-
-        if (currentZonePoints.length > 0) {
-          ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 3; ctx.beginPath();
-          ctx.moveTo(currentZonePoints[0].x, currentZonePoints[0].y); currentZonePoints.slice(1).forEach(pt => ctx.lineTo(pt.x, pt.y)); ctx.stroke();
-          currentZonePoints.forEach(pt => { ctx.fillStyle = "#f59e0b"; ctx.beginPath(); ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2); ctx.fill(); });
-        }
-      }
-
       ctx.save();
       if (p.underForeground) ctx.globalAlpha = 0.45;
       const img = spriteSheetRef.current;
@@ -357,64 +333,26 @@ export default function TopDownGame() {
       }
       ctx.restore();
 
-      if (debugMode && appMode === "play") {
-        ctx.lineWidth = MAP_STROKE_WIDTH; ctx.lineCap = "round"; ctx.lineJoin = "round";
-        ctx.strokeStyle = "#ef4444"; zones.current.filter((z) => z.type === "boundary").forEach((w) => drawStroke(ctx, w));
-        ctx.strokeStyle = "#22c55e"; zones.current.filter((z) => z.type === "foreground").forEach((f) => drawStroke(ctx, f));
-      }
-
       animationFrameId = requestAnimationFrame(gameLoop);
     };
 
     animationFrameId = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [debugMode, appMode, audioZones, currentZonePoints, audioEnabled]);
+  }, [debugMode, audioZones, audioEnabled]);
 
-  const handleCanvasClick = (e) => {
+  const handleCanvasClick = () => {
     if (!audioEnabled) setAudioEnabled(true);
-    if (appMode !== "edit_audio") return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width; const scaleY = canvasRef.current.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX; const y = (e.clientY - rect.top) * scaleY;
-    setCurrentZonePoints((prev) => [...prev, { x, y }]);
   };
 
-  const finishDrawingZone = () => {
-    if (currentZonePoints.length < 3) return alert("Please draw at least 3 points.");
-    setAudioZones((prev) => [...prev, { id: `audio_zone_${Date.now()}`, points: currentZonePoints, name: zoneConfig.name, fadeDistance: parseInt(zoneConfig.fadeDistance, 10) }]);
-    setCurrentZonePoints([]);
+  const handleMuteToggle = () => {
+    setAudioEnabled(true);
+    userMutedRef.current = !userMutedRef.current;
+    const physicallyMuted = hardwareInput.current.button === 0;
+    setIsMutedHUD(userMutedRef.current || physicallyMuted);
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", fontFamily: "sans-serif" }}>
-      
-      <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #cbd5e1", marginBottom: "16px", width: "100%", maxWidth: "998px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-        <div>
-          <button style={{ marginRight: "10px", padding: "6px 12px", background: appMode === "play" ? "#3b82f6" : "#e2e8f0", color: appMode === "play" ? "white" : "black", cursor: "pointer", border: "none", borderRadius: "4px" }} onClick={() => setAppMode("play")}>
-            🎮 Play Mode
-          </button>
-          <button style={{ padding: "6px 12px", background: appMode === "edit_audio" ? "#a855f7" : "#e2e8f0", color: appMode === "edit_audio" ? "white" : "black", cursor: "pointer", border: "none", borderRadius: "4px" }} onClick={() => setAppMode("edit_audio")}>
-            🎵 Edit Audio Zones
-          </button>
-        </div>
-
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <button 
-            onClick={connectSerial} 
-            disabled={serialConnected}
-            style={{ padding: "6px 12px", background: serialConnected ? "#10b981" : "#3b82f6", color: "white", cursor: serialConnected ? "default" : "pointer", border: "none", borderRadius: "4px" }}
-          >
-            {serialConnected ? "🔌 Hardware Connected" : "🔌 Connect Serial Controller"}
-          </button>
-          
-          {appMode === "play" && (
-            <div style={{ fontSize: "14px", alignSelf: "center", color: !audioEnabled ? "#ef4444" : "#10b981", fontWeight: "bold" }}>
-              {audioEnabled ? "🔊 Audio Active" : "🔇 Click Canvas"}
-            </div>
-          )}
-        </div>
-      </div>
-
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", fontFamily: "sans-serif", position: "relative" }}>
       {serialConnected && debugMode && (
          <div style={{ width: "100%", maxWidth: "998px", marginBottom: "8px", fontSize: "13px", display: "flex", gap: "16px", padding: "8px", background: isMutedHUD ? "#fecdd3" : "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: "6px" }}>
            <strong>Live Controller Data:</strong>
@@ -428,33 +366,41 @@ export default function TopDownGame() {
          </div>
       )}
 
-      {appMode === "edit_audio" && (
-        <div style={{ background: "#faf5ff", border: "1px solid #d8b4fe", padding: "12px", borderRadius: "8px", width: "100%", maxWidth: "998px", marginBottom: "16px", display: "flex", gap: "12px", alignItems: "flex-end" }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ display: "block", fontSize: "12px", marginBottom: "4px", fontWeight: "bold" }}>Asset Name (e.g. "forest")</label>
-            <input type="text" value={zoneConfig.name} onChange={(e) => setZoneConfig({ ...zoneConfig, name: e.target.value })} style={{ width: "100%", padding: "6px" }} />
-          </div>
-          <div>
-            <label style={{ display: "block", fontSize: "12px", marginBottom: "4px", fontWeight: "bold" }}>Fade Dist (px)</label>
-            <input type="number" value={zoneConfig.fadeDistance} onChange={(e) => setZoneConfig({ ...zoneConfig, fadeDistance: e.target.value })} style={{ width: "80px", padding: "6px" }} />
-          </div>
-          <button onClick={finishDrawingZone} style={{ padding: "8px 16px", background: "#22c55e", color: "white", border: "none", borderRadius: "4px", cursor: currentZonePoints.length >= 3 ? "pointer" : "not-allowed", opacity: currentZonePoints.length >= 3 ? 1 : 0.5 }}>
-            Close Shape
-          </button>
-        </div>
-      )}
-
       <canvas
         ref={canvasRef}
         width={MAP_WIDTH}
         height={MAP_HEIGHT}
         onClick={handleCanvasClick}
         style={{
-          border: appMode === "edit_audio" ? "3px dashed #a855f7" : "2px solid #333",
+          border: "2px solid #333",
           borderRadius: "8px", backgroundColor: "#fff", maxWidth: "100%", height: "auto",
-          cursor: appMode === "edit_audio" ? "crosshair" : "default"
+          cursor: "default"
         }}
       />
+      <div style={{ position: "absolute", right: "16px", bottom: "16px", display: "flex", gap: "12px", zIndex: 2 }}>
+        <button
+          type="button"
+          onClick={() => {
+            setAudioEnabled(true);
+            connectSerial();
+          }}
+          disabled={serialConnected}
+          aria-label={serialConnected ? "Serial controller connected" : "Connect serial controller"}
+          title={serialConnected ? "Serial controller connected" : "Connect serial controller"}
+          style={{ width: "56px", height: "56px", borderRadius: "50%", border: "2px solid white", padding: "10px", background: serialConnected ? "#10b981" : "#3b82f6", cursor: serialConnected ? "default" : "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }}
+        >
+          <img src={connectIcon} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+        </button>
+        <button
+          type="button"
+          onClick={handleMuteToggle}
+          aria-label={isMutedHUD ? "Turn sound on" : "Mute sound"}
+          title={isMutedHUD ? "Turn sound on" : "Mute sound"}
+          style={{ width: "56px", height: "56px", borderRadius: "50%", border: "2px solid white", padding: "10px", background: isMutedHUD ? "#ef4444" : "#10b981", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }}
+        >
+          <img src={isMutedHUD ? onIcon : muteIcon} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+        </button>
+      </div>
     </div>
   );
 }
