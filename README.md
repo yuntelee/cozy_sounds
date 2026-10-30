@@ -1,8 +1,10 @@
+# Cozy Sounds
+
 <img width="480" height="492" alt="snippet of game" src="https://github.com/user-attachments/assets/e00194f7-0480-4bc3-9a87-87329958d875" />
 
 An interactive ambient soundscape controller built with an ESP32, physical controls, and a retro 2D pixel-art map built in React.
 
-# Quick Start
+## Quick Start
 
 Flash the ESP32 firmware ("esp32.ino"). The ESP32 has 3 physical components attached, a button, potentiometer, and a joystick.
 
